@@ -7,6 +7,7 @@ from great_expectations.core.util import (
     DBFSPath,
     GCSUrl,
     S3Url,
+    normalize_datasource_name,
     sniff_s3_compression,
     substitute_all_strftime_format_strings,
 )
@@ -238,3 +239,18 @@ def test_dbfs_path_protocol_conversions(input_path, expected_path):
 def test_dbfs_path_file_semantics_conversions(input_path, expected_path):
     observed_path = DBFSPath.convert_to_file_semantics_version(path=input_path)
     assert observed_path == expected_path
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("MyDatasource", "mydatasource"),
+        ("mydatasource", "mydatasource"),
+        (" Foo ", "foo"),
+        ("foo", "foo"),
+        ("\tFOO\n", "foo"),
+    ],
+)
+def test_normalize_datasource_name(name, expected):
+    assert normalize_datasource_name(name) == expected
