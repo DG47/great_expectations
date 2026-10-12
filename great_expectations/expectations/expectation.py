@@ -1866,7 +1866,13 @@ representation."""  # noqa: E501 # FIXME CoP
                     )
 
         if isinstance(min_value, datetime.date) or isinstance(max_value, datetime.date):
-            if not isinstance(metric_value, datetime.date):
+            if isinstance(metric_value, datetime.datetime) and not any(
+                isinstance(bound, datetime.datetime) for bound in (min_value, max_value)
+            ):
+                # Date-only bounds compare at date granularity, as they already do on SQL
+                # backends; pandas cannot compare a Timestamp with a date at all.
+                metric_value = metric_value.date()
+            elif not isinstance(metric_value, datetime.date):
                 try:
                     metric_value = parse(metric_value).date()
                 except TypeError:

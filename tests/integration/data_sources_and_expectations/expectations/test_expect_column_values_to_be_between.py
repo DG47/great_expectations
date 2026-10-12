@@ -408,3 +408,51 @@ def test_infinite_decimal_is_unexpected_and_serializes(batch_for_datasource: Bat
     json_result = result.to_json_dict()["result"]
     assert isinstance(json_result, dict)
     assert json_result["unexpected_list"] == [float("inf")]
+
+
+TIMESTAMP_COLUMN = "timestamps"
+TIMESTAMP_DATA = pd.DataFrame(
+    {
+        TIMESTAMP_COLUMN: pd.Series(
+            [
+                datetime(2024, 1, 1),  # noqa: DTZ001 # FIXME CoP
+                datetime(2024, 1, 2, 12),  # noqa: DTZ001 # FIXME CoP
+                datetime(2024, 1, 3),  # noqa: DTZ001 # FIXME CoP
+                datetime(2024, 1, 4),  # noqa: DTZ001 # FIXME CoP
+                datetime(2024, 1, 6),  # noqa: DTZ001 # FIXME CoP
+                None,
+            ]
+        )
+    }
+)
+
+
+# A date-only bound against a timestamp column compares as midnight of that date, which is what
+# the SQL backends do. An ISO date string bound is coerced to a date before it reaches the metric.
+@pytest.mark.parametrize(
+    "min_value,max_value",
+    [
+        pytest.param(
+            datetime(2024, 1, 2).date(),  # noqa: DTZ001 # FIXME CoP
+            datetime(2024, 1, 4).date(),  # noqa: DTZ001 # FIXME CoP
+            id="date",
+        ),
+        pytest.param("2024-01-02", "2024-01-04", id="iso_date_string"),
+    ],
+)
+@parameterize_batch_for_data_sources(
+    data_source_configs=[
+        *JUST_PANDAS_DATA_SOURCES,
+        PostgreSQLDatasourceTestConfig(column_types={TIMESTAMP_COLUMN: sqltypes.TIMESTAMP}),
+    ],
+    data=TIMESTAMP_DATA,
+)
+def test_date_bounds_on_timestamp_column(
+    batch_for_datasource: Batch, min_value: Any, max_value: Any
+) -> None:
+    expectation = gxe.ExpectColumnValuesToBeBetween(
+        column=TIMESTAMP_COLUMN, min_value=min_value, max_value=max_value
+    )
+    result = batch_for_datasource.validate(expectation, result_format=ResultFormat.SUMMARY)
+    assert not result.success
+    assert result.result["unexpected_count"] == 2

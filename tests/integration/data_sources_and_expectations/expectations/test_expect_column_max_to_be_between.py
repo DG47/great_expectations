@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -285,3 +286,32 @@ def test_infinite_decimal_max(batch_for_datasource: Batch) -> None:
     result = batch_for_datasource.validate(expectation, result_format=ResultFormat.COMPLETE)
     assert result.success
     assert result.to_json_dict()["result"] == {"observed_value": float("inf")}
+
+
+# A date-only bound against a timestamp column compares the observed max at date granularity,
+# which is what the SQL backends do. An ISO date string bound is coerced to a date.
+@pytest.mark.parametrize(
+    "bound",
+    [
+        pytest.param(datetime(2024, 1, 6).date(), id="date"),  # noqa: DTZ001 # FIXME CoP
+        pytest.param("2024-01-06", id="iso_date_string"),
+    ],
+)
+@parameterize_batch_for_data_sources(
+    data_source_configs=[
+        *JUST_PANDAS_DATA_SOURCES,
+        PostgreSQLDatasourceTestConfig(column_types={COL_NAME: sqltypes.TIMESTAMP}),
+    ],
+    data=pd.DataFrame(
+        {
+            COL_NAME: pd.Series(
+                [datetime(2024, 1, 6, 18), datetime(2024, 1, 1)]  # noqa: DTZ001 # FIXME CoP
+            )
+        }
+    ),
+)
+def test_date_bounds_on_timestamp_column(batch_for_datasource: Batch, bound: Any) -> None:
+    expectation = gxe.ExpectColumnMaxToBeBetween(column=COL_NAME, min_value=bound, max_value=bound)
+    result = batch_for_datasource.validate(expectation)
+    assert result.success
+    assert result.result["observed_value"] == datetime(2024, 1, 6).date()  # noqa: DTZ001 # FIXME CoP

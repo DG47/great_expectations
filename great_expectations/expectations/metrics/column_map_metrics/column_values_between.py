@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 from dateutil.parser import parse
@@ -78,6 +78,19 @@ def _should_reject_incomparable_spark_column_type(min_value, max_value) -> bool:
     return not (bounds and all(isinstance(b, str) for b in bounds))
 
 
+def _to_timestamp_bound(value: Any) -> Any:
+    """Make a bound comparable with a pandas datetime column.
+
+    pandas refuses to compare a Timestamp with a datetime.date, so a date-only bound is taken as
+    midnight of that date, which is how the SQL backends compare a date with a timestamp.
+    """
+    if isinstance(value, str):
+        return parse(value)
+    if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+        return pd.Timestamp(value)
+    return value
+
+
 class ColumnValuesBetween(ColumnMapMetricProvider):
     condition_metric_name = "column_values.between"
     condition_value_keys = (
@@ -108,14 +121,9 @@ class ColumnValuesBetween(ColumnMapMetricProvider):
         # Use a vectorized approach for native numpy dtypes
         if column.dtype in [int, float]:
             return cls._pandas_vectorized(temp_column, min_value, max_value, strict_min, strict_max)
-        elif isinstance(column.dtype, pd.DatetimeTZDtype) or pd.api.types.is_datetime64_ns_dtype(
-            column.dtype
-        ):
-            if min_value is not None and isinstance(min_value, str):
-                min_value = parse(min_value)
-
-            if max_value is not None and isinstance(max_value, str):
-                max_value = parse(max_value)
+        elif pd.api.types.is_datetime64_any_dtype(column.dtype):
+            min_value = _to_timestamp_bound(min_value)
+            max_value = _to_timestamp_bound(max_value)
 
             return cls._pandas_vectorized(temp_column, min_value, max_value, strict_min, strict_max)
 
